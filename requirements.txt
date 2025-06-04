@@ -1,0 +1,8 @@
+requests
+edge-tts
+speechrecognition
+pandas
+yfinance
+difflib
+requests-toolbelt
+ffmpeg-python
