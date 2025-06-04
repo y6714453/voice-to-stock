@@ -58,41 +58,50 @@ def ensure_ffmpeg():
             os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
 
 
+import re
+
 def download_yemot_file():
-    # 🧾 בקשה לרשימת הקבצים בשלוחה
+    # 🧾 בקשת רשימת קבצים בשלוחה
     url_list = "https://www.call2all.co.il/ym/api/GetFolder"
     params = {"token": TOKEN, "path": "ivr2:/9"}
     response = requests.get(url_list, params=params)
-    
+
     if response.status_code != 200:
         print("❌ שגיאה בשליפת רשימת קבצים")
         return None
 
     files = response.json().get("files", [])
-    
-    # 📂 סינון קבצי WAV עם שם מספרי בלבד
-    wav_files = [f for f in files if f.get("name", "").endswith(".wav") and f["name"][:-4].isdigit()]
-    if not wav_files:
+
+    # 🔍 איתור קבצים מסוג wav עם מספר תקני כלשהו
+    numbered_wav_files = []
+    for f in files:
+        name = f.get("name", "")
+        match = re.search(r'\b(\d{3})\.wav\b', name)
+        if match:
+            number = int(match.group(1))
+            numbered_wav_files.append((number, name))
+
+    if not numbered_wav_files:
         print("📭 אין קבצי WAV לשליפה")
         return None
 
-    # 🔢 בחירת הקובץ עם המספר הגבוה ביותר
-    max_file = max(wav_files, key=lambda f: int(f["name"][:-4]))
-    filename = max_file["name"]
-    
+    # 🔢 מיון לפי מספר ובחירת הגבוה ביותר
+    max_number, max_filename = max(numbered_wav_files, key=lambda x: x[0])
+
     # 📥 הורדת הקובץ שנבחר
     url_download = "https://www.call2all.co.il/ym/api/DownloadFile"
-    params = {"token": TOKEN, "path": f"ivr2:/9/{filename}"}
+    params = {"token": TOKEN, "path": f"ivr2:/9/{max_filename}"}
     response = requests.get(url_download, params=params)
-    
+
     if response.status_code == 200 and response.content:
         with open("input.wav", "wb") as f:
             f.write(response.content)
-        print(f"\U0001F4E5 הקובץ {filename} ירד בהצלחה")
+        print(f"\U0001F4E5 ירד הקובץ: {max_filename}")
         return "input.wav"
     else:
         print("❌ לא הצליח להוריד את הקובץ")
         return None
+
 
 
 def transcribe_audio(filename):
