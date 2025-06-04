@@ -16,40 +16,56 @@ PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
-async def main_loop():
-    stock_dict = load_stock_list("hebrew_stocks.csv")
-    print("\U0001F501 בלולאת בדיקה מתחילה 9...")
+units = ["", "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע"]
+tens = ["", "עשר", "עשרים", "שלושים", "ארבעים", "חמישים", "שישים", "שבעים", "שמונים", "תשעים"]
 
-    ensure_ffmpeg()
-    last_processed_file = None
 
-    while True:
-        filename, file_name_only = download_yemot_file()
-        if filename and file_name_only != last_processed_file:
-            last_processed_file = file_name_only
-            recognized = transcribe_audio(filename)
-            if recognized:
-                best_match = get_best_match(recognized, stock_dict)
-                if best_match:
-                    ticker = stock_dict[best_match]
-                    data = get_stock_data(ticker)
-                    if data:
-                        text = format_text(best_match, ticker, data)
-                    else:
-                        text = "לא נמצאו נתונים מתאימים לזיהוי המניה"
-                else:
-                    text = "לא נמצאו נתונים מתאימים לזיהוי המניה"
+def number_to_words(n):
+    if n >= 1000:
+        return str(int(n))
+    int_part = int(n)
+    frac_part = round(n - int_part, 2)
+    words = []
+    if int_part >= 100:
+        words.append(str(int_part))
+    elif int_part >= 20:
+        t = int_part // 10
+        u = int_part % 10
+        words.append(tens[t])
+        if u:
+            words.append(units[u])
+    elif int_part >= 10:
+        words.append(str(int_part))
+    elif int_part > 0:
+        words.append(units[int_part])
+    else:
+        words.append("אפס")
 
-                await create_audio(text, "output.mp3")
-                convert_mp3_to_wav("output.mp3", "output.wav")
-                upload_to_yemot("output.wav")
-                delete_yemot_file(file_name_only)
-                print("\u2705 הושלמה פעולה מחזורית\n")
-        await asyncio.sleep(1)
+    if frac_part > 0:
+        decimal = int(round(frac_part * 100))
+        words.append("נקודה")
+        words.append(str(decimal))
+
+    return " ".join(words)
+
+
+def spell_price(p):
+    return number_to_words(p) + " שקלים חדשים"
+
+
+def spell_percent(p):
+    return number_to_words(abs(p)) + " אחוז"
+
+
+def describe_change(title, p):
+    if p == 0:
+        return f"{title} נרשם שינוי אפסי."
+    direction = "עלייה" if p > 0 else "ירידה"
+    return f"{title} נרשמה {direction} של {spell_percent(p)}."
+
 
 def ensure_ffmpeg():
     if not shutil.which("ffmpeg"):
-        print("\U0001F527 מוריד ffmpeg...")
         os.makedirs("ffmpeg_bin", exist_ok=True)
         zip_path = "ffmpeg.zip"
         r = requests.get(FFMPEG_URL)
@@ -65,80 +81,57 @@ def ensure_ffmpeg():
         if bin_path:
             os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
 
+
 def download_yemot_file():
     url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
     params = {"token": TOKEN, "path": "9"}
     response = requests.get(url, params=params)
 
     if response.status_code != 200:
-        print("❌ שגיאה בשליפת הקבצים")
         return None, None
 
     data = response.json()
     files = data.get("files", [])
-    if not files:
-        print("📭 אין קבצים בשלוחה")
+    valid_files = [(int(re.match(r"(\\d+)\\.wav$", f["name"]).group(1)), f["name"]) for f in files if f.get("exists", False) and f["name"].endswith(".wav") and re.match(r"(\\d+)\\.wav$", f["name"])]
+    if not valid_files:
         return None, None
 
-    numbered_wav_files = []
-    for f in files:
-        name = f.get("name", "")
-        if not f.get("exists", False):
-            continue
-        if not name.endswith(".wav"):
-            continue
-        if name.startswith("M"):
-            continue
-        match = re.match(r"(\d+)\.wav$", name)
-        if match:
-            number = int(match.group(1))
-            numbered_wav_files.append((number, name))
-
-    if not numbered_wav_files:
-        print("📭 אין קובצי WAV תקינים")
-        return None, None
-
-    max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
-    print(f"\U0001F50D נמצא הקובץ: {max_name}")
-
+    max_number, max_name = max(valid_files)
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
     download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
     r = requests.get(download_url, params=download_params)
-
     if r.status_code == 200 and r.content:
         with open("input.wav", "wb") as f:
             f.write(r.content)
-        print("✅ הורדת הקובץ בוצעה בהצלחה")
         return "input.wav", max_name
-    else:
-        print("❌ שגיאה בהורדת הקובץ")
-        return None, None
+    return None, None
+
 
 def delete_yemot_file(file_name):
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
     params = {"token": TOKEN, "path": f"ivr2:/9/{file_name}"}
     requests.get(url, params=params)
-    print(f"\U0001F5D1️ הקובץ {file_name} נמחק מהשלוחה")
+
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
     with sr.AudioFile(filename) as source:
         audio = r.record(source)
     try:
-        text = r.recognize_google(audio, language="he-IL")
-        print(f"\U0001F5E3️ זיהוי: {text}")
-        return text
+        return r.recognize_google(audio, language="he-IL")
     except:
-        print("\u274C לא הצליח לזהות דיבור")
         return ""
+
 
 def load_stock_list(csv_path):
     df = pd.read_csv(csv_path)
     return dict(zip(df['hebrew_name'], df['ticker']))
 
+
 def get_best_match(query, stock_dict):
     matches = get_close_matches(query, stock_dict.keys(), n=1, cutoff=0.6)
     return matches[0] if matches else None
+
 
 def get_stock_data(ticker):
     try:
@@ -146,40 +139,44 @@ def get_stock_data(ticker):
         hist = stock.history(period="1y")
         if hist.empty or len(hist) < 2:
             return None
-        current_price = hist['Close'].iloc[-1]
-        price_day = hist['Close'].iloc[-2]
-        price_week = hist['Close'].iloc[-6] if len(hist) > 6 else price_day
-        price_3mo = hist['Close'].iloc[-66] if len(hist) > 66 else price_day
-        price_year = hist['Close'].iloc[0]
-        max_price = hist['Close'].max()
+        current = hist['Close'].iloc[-1]
+        day = hist['Close'].iloc[-2]
+        week = hist['Close'].iloc[-6] if len(hist) > 6 else day
+        mo3 = hist['Close'].iloc[-66] if len(hist) > 66 else day
+        year = hist['Close'].iloc[0]
+        high = hist['Close'].max()
         return {
-            'current': round(current_price, 2),
-            'day': round((current_price - price_day) / price_day * 100, 2),
-            'week': round((current_price - price_week) / price_week * 100, 2),
-            '3mo': round((current_price - price_3mo) / price_3mo * 100, 2),
-            'year': round((current_price - price_year) / price_year * 100, 2),
-            'from_high': round((current_price - max_price) / max_price * 100, 2)
+            'current': current,
+            'day': ((current - day) / day) * 100,
+            'week': ((current - week) / week) * 100,
+            '3mo': ((current - mo3) / mo3) * 100,
+            'year': ((current - year) / year) * 100,
+            'from_high': ((current - high) / high) * 100
         }
     except:
         return None
 
+
 def format_text(name, ticker, data):
     return (
-        f"נמצאה מניה בשם {name}."
-        f"המניה נסחרת בשווי של {data['current']} שקלים. "
-        f"שינוי יומי: {data['day']} אחוז. "
-        f"שינוי שבועי: {data['week']} אחוז. "
-        f"שינוי בשלושה חודשים: {data['3mo']} אחוז. "
-        f"שינוי מתחילת השנה: {data['year']} אחוז. "
-        f"המניה רחוקה מהשיא ב־{abs(data['from_high'])} אחוז."
+        f"נמצאה מניית {name}. "
+        f"המנייה נסחרת כעת בשווי של {spell_price(data['current'])}. "
+        f"{describe_change('מתחילת היום', data['day'])} "
+        f"{describe_change('מתחילת השבוע', data['week'])} "
+        f"{describe_change('בשלושת החודשים האחרונים', data['3mo'])} "
+        f"{describe_change('מתחילת השנה', data['year'])} "
+        f"המחיר הנוכחי רחוק מהשיא ב־{spell_percent(data['from_high'])}."
     )
+
 
 async def create_audio(text, filename="output.mp3"):
     communicate = edge_tts.Communicate(text, voice="he-IL-AvriNeural")
     await communicate.save(filename)
 
+
 def convert_mp3_to_wav(mp3_file, wav_file):
     subprocess.run(["ffmpeg", "-y", "-i", mp3_file, "-ar", "8000", "-ac", "1", "-acodec", "pcm_s16le", wav_file])
+
 
 def upload_to_yemot(wav_file):
     url = "https://www.call2all.co.il/ym/api/UploadFile"
@@ -187,7 +184,32 @@ def upload_to_yemot(wav_file):
         fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
-    print("\u2B06️ קובץ עלה לשלוחה 99")
+
+
+async def main_loop():
+    stock_dict = load_stock_list("hebrew_stocks.csv")
+    ensure_ffmpeg()
+    last_processed_file = None
+
+    while True:
+        filename, file_name_only = download_yemot_file()
+        if filename and file_name_only != last_processed_file:
+            last_processed_file = file_name_only
+            recognized = transcribe_audio(filename)
+            if recognized:
+                best_match = get_best_match(recognized, stock_dict)
+                if best_match:
+                    ticker = stock_dict[best_match]
+                    data = get_stock_data(ticker)
+                    text = format_text(best_match, ticker, data) if data else "לא נמצאו נתונים מתאימים לזיהוי המניה"
+                else:
+                    text = "לא נמצאו נתונים מתאימים לזיהוי המניה"
+                await create_audio(text, "output.mp3")
+                convert_mp3_to_wav("output.mp3", "output.wav")
+                upload_to_yemot("output.wav")
+                delete_yemot_file(file_name_only)
+        await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
