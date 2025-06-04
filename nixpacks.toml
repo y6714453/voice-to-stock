@@ -1,8 +1,12 @@
 [phases.setup]
-nixPkgs = ["python312Full", "ffmpeg"]
+nixPkgs = ["python312", "ffmpeg"]
 
 [phases.install]
-cmds = ["python3.12 -m pip install -r requirements.txt"]
+cmds = [
+  "curl -O https://bootstrap.pypa.io/get-pip.py",
+  "python3.12 get-pip.py",
+  "python3.12 -m pip install -r requirements.txt"
+]
 
 [start]
 cmd = "python3.12 main.py"
