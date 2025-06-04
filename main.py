@@ -178,7 +178,7 @@ def convert_mp3_to_wav(mp3_file, wav_file):
 def upload_to_yemot(wav_file):
     url = "https://www.call2all.co.il/ym/api/UploadFile"
     m = MultipartEncoder(
-        fields={"token": TOKEN, "path": "ivr2:/8/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
+        fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
     print("\u2B06️ קובץ עלה לשלוחה 8")
