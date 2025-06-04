@@ -208,7 +208,7 @@ async def main_loop():
                 convert_mp3_to_wav("output.mp3", "output.wav")
                 upload_to_yemot("output.wav")
                 delete_yemot_file(file_name_only)
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
 
 if __name__ == "__main__":
