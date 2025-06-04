@@ -8,6 +8,8 @@ import pandas as pd
 import yfinance as yf
 from difflib import get_close_matches
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+import requests
+import re
 
 USERNAME = "0733181201"
 PASSWORD = "6714453"
@@ -58,51 +60,57 @@ def ensure_ffmpeg():
             os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
 
 
-import re
-
 def download_yemot_file():
-    # 🧾 בקשת רשימת קבצים בשלוחה
-    url_list = "https://www.call2all.co.il/ym/api/GetFolder"
-    params = {"token": TOKEN, "path": "ivr2:/9"}
-    response = requests.get(url_list, params=params)
+    url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
+    params = {"token": TOKEN, "path": "9"}  # שים לב: רק '9' ולא 'ivr2:/9'
+    response = requests.get(url, params=params)
 
     if response.status_code != 200:
-        print("❌ שגיאה בשליפת רשימת קבצים")
+        print("❌ שגיאה בשליפת הקבצים")
         return None
 
-    files = response.json().get("files", [])
+    data = response.json()
+    files = data.get("files", [])
+    if not files:
+        print("📭 אין קבצים בשלוחה")
+        return None
 
-    # 🔍 איתור קבצים מסוג wav עם מספר תקני כלשהו
+    # סינון: קבצים שמם מספרי בלבד (כמו 001.wav), לא מתחילים ב־M, וקיימים באמת
     numbered_wav_files = []
     for f in files:
         name = f.get("name", "")
-        match = re.search(r'\b(\d{3})\.wav\b', name)
+        if not f.get("exists", False):
+            continue
+        if not name.endswith(".wav"):
+            continue
+        if name.startswith("M"):
+            continue
+        match = re.match(r"(\d+)\.wav$", name)
         if match:
             number = int(match.group(1))
             numbered_wav_files.append((number, name))
 
     if not numbered_wav_files:
-        print("📭 אין קבצי WAV לשליפה")
+        print("📭 אין קובצי WAV תקינים")
         return None
 
-    # 🔢 מיון לפי מספר ובחירת הגבוה ביותר
-    max_number, max_filename = max(numbered_wav_files, key=lambda x: x[0])
+    # מציאת הקובץ עם המספר הגבוה ביותר
+    max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
+    print(f"\U0001F50D נמצא הקובץ: {max_name}")
 
-    # 📥 הורדת הקובץ שנבחר
-    url_download = "https://www.call2all.co.il/ym/api/DownloadFile"
-    params = {"token": TOKEN, "path": f"ivr2:/9/{max_filename}"}
-    response = requests.get(url_download, params=params)
+    # הורדה
+    download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
+    download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
+    r = requests.get(download_url, params=download_params)
 
-    if response.status_code == 200 and response.content:
+    if r.status_code == 200 and r.content:
         with open("input.wav", "wb") as f:
-            f.write(response.content)
-        print(f"\U0001F4E5 ירד הקובץ: {max_filename}")
+            f.write(r.content)
+        print("✅ הורדת הקובץ בוצעה בהצלחה")
         return "input.wav"
     else:
-        print("❌ לא הצליח להוריד את הקובץ")
+        print("❌ שגיאה בהורדת הקובץ")
         return None
-
-
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
@@ -144,6 +152,8 @@ def get_stock_data(ticker):
             'year': round((current_price - price_year) / price_year * 100, 2),
             'from_high': round((current_price - max_price) / max_price * 100, 2)
         }
+
+
     except:
         return None
 
