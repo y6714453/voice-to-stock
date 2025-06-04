@@ -13,9 +13,13 @@ USERNAME = "0733181201"
 PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
 
+FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+
 async def main_loop():
     stock_dict = load_stock_list("hebrew_stocks.csv")
-    print("🔁 בלולאת בדיקה מתחילה 9...")
+    print("\U0001F501 בלולאת בדיקה מתחילה 9...")
+
+    ensure_ffmpeg()
 
     while True:
         filename = download_yemot_file()
@@ -32,8 +36,27 @@ async def main_loop():
                         convert_mp3_to_wav("output.mp3", "output.wav")
                         upload_to_yemot("output.wav")
                         delete_yemot_file()
-                        print("✅ הושלמה פעולה מחזורית\n")
+                        print("\u2705 הושלמה פעולה מחזורית\n")
         await asyncio.sleep(2)
+
+def ensure_ffmpeg():
+    if not shutil.which("ffmpeg"):
+        print("\U0001F527 מוריד ffmpeg...")
+        os.makedirs("ffmpeg_bin", exist_ok=True)
+        zip_path = "ffmpeg.zip"
+        r = requests.get(FFMPEG_URL)
+        with open(zip_path, 'wb') as f:
+            f.write(r.content)
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall("ffmpeg_bin")
+        os.remove(zip_path)
+        bin_path = next((os.path.join(root, file)
+                         for root, _, files in os.walk("ffmpeg_bin")
+                         for file in files if file == "ffmpeg.exe" or file == "ffmpeg"), None)
+        if bin_path:
+            os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
+
 
 def download_yemot_file():
     url = "https://www.call2all.co.il/ym/api/DownloadFile"
@@ -42,7 +65,7 @@ def download_yemot_file():
     if response.status_code == 200 and response.content:
         with open("input.wav", "wb") as f:
             f.write(response.content)
-        print("📥 קובץ ירד מהשלוחה")
+        print("\U0001F4E5 קובץ ירד מהשלוחה")
         return "input.wav"
     return None
 
@@ -52,10 +75,10 @@ def transcribe_audio(filename):
         audio = r.record(source)
     try:
         text = r.recognize_google(audio, language="he-IL")
-        print(f"🗣️ זיהוי: {text}")
+        print(f"\U0001F5E3️ זיהוי: {text}")
         return text
     except:
-        print("❌ לא הצליח לזהות דיבור")
+        print("\u274C לא הצליח לזהות דיבור")
         return ""
 
 def load_stock_list(csv_path):
@@ -113,13 +136,14 @@ def upload_to_yemot(wav_file):
         fields={"token": TOKEN, "path": "ivr2:/8/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
-    print("⬆️ קובץ עלה לשלוחה 8")
+    print("\u2B06️ קובץ עלה לשלוחה 8")
 
 def delete_yemot_file():
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
     params = {"token": TOKEN, "path": "ivr2:/9/000.wav"}
     requests.get(url, params=params)
-    print("🗑️ הקובץ נמחק מהשלוחה")
+    print("\U0001F5D1️ הקובץ נמחק מהשלוחה")
 
 if __name__ == "__main__":
+    import shutil
     asyncio.run(main_loop())
