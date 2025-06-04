@@ -159,8 +159,8 @@ def get_stock_data(ticker):
 
 def format_text(name, ticker, data):
     return (
-        f"נמצאה מניה בשם {name}, סימול {ticker}. "
-        f"המחיר הנוכחי הוא {data['current']} שקלים. "
+        f"נמצאה מניה בשם {name}."
+        f"המניה נסחרת בשווי של {data['current']} שקלים. "
         f"שינוי יומי: {data['day']} אחוז. "
         f"שינוי שבועי: {data['week']} אחוז. "
         f"שינוי בשלושה חודשים: {data['3mo']} אחוז. "
@@ -181,7 +181,7 @@ def upload_to_yemot(wav_file):
         fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
-    print("\u2B06️ קובץ עלה לשלוחה 8")
+    print("\u2B06️ קובץ עלה לשלוחה 99")
 
 def delete_yemot_file():
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
