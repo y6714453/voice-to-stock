@@ -1,7 +1,7 @@
+pydub
 requests
 edge-tts
 speechrecognition
 pandas
 yfinance
 requests-toolbelt
-ffmpeg-python
