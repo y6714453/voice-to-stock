@@ -8,13 +8,12 @@ import pandas as pd
 import yfinance as yf
 from difflib import get_close_matches
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-import requests
 import re
+import shutil
 
 USERNAME = "0733181201"
 PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
-
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
 async def main_loop():
@@ -22,10 +21,12 @@ async def main_loop():
     print("\U0001F501 בלולאת בדיקה מתחילה 9...")
 
     ensure_ffmpeg()
+    last_processed_file = None
 
     while True:
-        filename = download_yemot_file()
-        if filename:
+        filename, file_name_only = download_yemot_file()
+        if filename and file_name_only != last_processed_file:
+            last_processed_file = file_name_only
             recognized = transcribe_audio(filename)
             if recognized:
                 best_match = get_best_match(recognized, stock_dict)
@@ -34,12 +35,17 @@ async def main_loop():
                     data = get_stock_data(ticker)
                     if data:
                         text = format_text(best_match, ticker, data)
-                        await create_audio(text, "output.mp3")
-                        convert_mp3_to_wav("output.mp3", "output.wav")
-                        upload_to_yemot("output.wav")
-                        delete_yemot_file()
-                        print("\u2705 הושלמה פעולה מחזורית\n")
-        await asyncio.sleep(2)
+                    else:
+                        text = "לא נמצאו נתונים מתאימים לזיהוי המניה"
+                else:
+                    text = "לא נמצאו נתונים מתאימים לזיהוי המניה"
+
+                await create_audio(text, "output.mp3")
+                convert_mp3_to_wav("output.mp3", "output.wav")
+                upload_to_yemot("output.wav")
+                delete_yemot_file(file_name_only)
+                print("\u2705 הושלמה פעולה מחזורית\n")
+        await asyncio.sleep(1)
 
 def ensure_ffmpeg():
     if not shutil.which("ffmpeg"):
@@ -59,23 +65,21 @@ def ensure_ffmpeg():
         if bin_path:
             os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
 
-
 def download_yemot_file():
     url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
-    params = {"token": TOKEN, "path": "9"}  # שים לב: רק '9' ולא 'ivr2:/9'
+    params = {"token": TOKEN, "path": "9"}
     response = requests.get(url, params=params)
 
     if response.status_code != 200:
         print("❌ שגיאה בשליפת הקבצים")
-        return None
+        return None, None
 
     data = response.json()
     files = data.get("files", [])
     if not files:
         print("📭 אין קבצים בשלוחה")
-        return None
+        return None, None
 
-    # סינון: קבצים שמם מספרי בלבד (כמו 001.wav), לא מתחילים ב־M, וקיימים באמת
     numbered_wav_files = []
     for f in files:
         name = f.get("name", "")
@@ -92,13 +96,11 @@ def download_yemot_file():
 
     if not numbered_wav_files:
         print("📭 אין קובצי WAV תקינים")
-        return None
+        return None, None
 
-    # מציאת הקובץ עם המספר הגבוה ביותר
     max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
     print(f"\U0001F50D נמצא הקובץ: {max_name}")
 
-    # הורדה
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
     download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
     r = requests.get(download_url, params=download_params)
@@ -107,10 +109,16 @@ def download_yemot_file():
         with open("input.wav", "wb") as f:
             f.write(r.content)
         print("✅ הורדת הקובץ בוצעה בהצלחה")
-        return "input.wav"
+        return "input.wav", max_name
     else:
         print("❌ שגיאה בהורדת הקובץ")
-        return None
+        return None, None
+
+def delete_yemot_file(file_name):
+    url = "https://www.call2all.co.il/ym/api/DeleteFile"
+    params = {"token": TOKEN, "path": f"ivr2:/9/{file_name}"}
+    requests.get(url, params=params)
+    print(f"\U0001F5D1️ הקובץ {file_name} נמחק מהשלוחה")
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
@@ -152,8 +160,6 @@ def get_stock_data(ticker):
             'year': round((current_price - price_year) / price_year * 100, 2),
             'from_high': round((current_price - max_price) / max_price * 100, 2)
         }
-
-
     except:
         return None
 
@@ -183,12 +189,5 @@ def upload_to_yemot(wav_file):
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
     print("\u2B06️ קובץ עלה לשלוחה 99")
 
-def delete_yemot_file():
-    url = "https://www.call2all.co.il/ym/api/DeleteFile"
-    params = {"token": TOKEN, "path": "ivr2:/9/000.wav"}
-    requests.get(url, params=params)
-    print("\U0001F5D1️ הקובץ נמחק מהשלוחה")
-
 if __name__ == "__main__":
-    import shutil
     asyncio.run(main_loop())
