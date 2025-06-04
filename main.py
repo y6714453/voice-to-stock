@@ -59,15 +59,41 @@ def ensure_ffmpeg():
 
 
 def download_yemot_file():
-    url = "https://www.call2all.co.il/ym/api/DownloadFile"
-    params = {"token": TOKEN, "path": "ivr2:/9/000.wav"}
-    response = requests.get(url, params=params)
+    # 🧾 בקשה לרשימת הקבצים בשלוחה
+    url_list = "https://www.call2all.co.il/ym/api/GetFolder"
+    params = {"token": TOKEN, "path": "ivr2:/9"}
+    response = requests.get(url_list, params=params)
+    
+    if response.status_code != 200:
+        print("❌ שגיאה בשליפת רשימת קבצים")
+        return None
+
+    files = response.json().get("files", [])
+    
+    # 📂 סינון קבצי WAV עם שם מספרי בלבד
+    wav_files = [f for f in files if f.get("name", "").endswith(".wav") and f["name"][:-4].isdigit()]
+    if not wav_files:
+        print("📭 אין קבצי WAV לשליפה")
+        return None
+
+    # 🔢 בחירת הקובץ עם המספר הגבוה ביותר
+    max_file = max(wav_files, key=lambda f: int(f["name"][:-4]))
+    filename = max_file["name"]
+    
+    # 📥 הורדת הקובץ שנבחר
+    url_download = "https://www.call2all.co.il/ym/api/DownloadFile"
+    params = {"token": TOKEN, "path": f"ivr2:/9/{filename}"}
+    response = requests.get(url_download, params=params)
+    
     if response.status_code == 200 and response.content:
         with open("input.wav", "wb") as f:
             f.write(response.content)
-        print("\U0001F4E5 קובץ ירד מהשלוחה")
+        print(f"\U0001F4E5 הקובץ {filename} ירד בהצלחה")
         return "input.wav"
-    return None
+    else:
+        print("❌ לא הצליח להוריד את הקובץ")
+        return None
+
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
