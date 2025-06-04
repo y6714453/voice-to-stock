@@ -9,15 +9,13 @@ import yfinance as yf
 from difflib import get_close_matches
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
-# 🟡 פרטי המערכת שלך
 USERNAME = "0733181201"
 PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
 
-# 🔁 בדיקה כל 2 שניות אם יש קובץ בשלוחה 9
 async def main_loop():
     stock_dict = load_stock_list("hebrew_stocks.csv")
-    print("🔁 מתחיל בלולאת בדיקה לשלוחה 9...")
+    print("🔁 בלולאת בדיקה מתחילה 9...")
 
     while True:
         filename = download_yemot_file()
@@ -37,7 +35,6 @@ async def main_loop():
                         print("✅ הושלמה פעולה מחזורית\n")
         await asyncio.sleep(2)
 
-# 📥 שליפת קובץ מהשלוחה 9
 def download_yemot_file():
     url = "https://www.call2all.co.il/ym/api/DownloadFile"
     params = {"token": TOKEN, "path": "ivr2:/9/000.wav"}
@@ -49,7 +46,6 @@ def download_yemot_file():
         return "input.wav"
     return None
 
-# 🎙️ תמלול קולי
 def transcribe_audio(filename):
     r = sr.Recognizer()
     with sr.AudioFile(filename) as source:
@@ -62,17 +58,14 @@ def transcribe_audio(filename):
         print("❌ לא הצליח לזהות דיבור")
         return ""
 
-# 📄 טעינת קובץ שמות מניות
 def load_stock_list(csv_path):
     df = pd.read_csv(csv_path)
     return dict(zip(df['hebrew_name'], df['ticker']))
 
-# 🔍 התאמת שם עברי לטיקר
 def get_best_match(query, stock_dict):
     matches = get_close_matches(query, stock_dict.keys(), n=1, cutoff=0.6)
     return matches[0] if matches else None
 
-# 📊 שליפת נתונים מ־Yahoo Finance
 def get_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -96,7 +89,6 @@ def get_stock_data(ticker):
     except:
         return None
 
-# 📝 ניסוח הטקסט
 def format_text(name, ticker, data):
     return (
         f"נמצאה מניה בשם {name}, סימול {ticker}. "
@@ -108,16 +100,13 @@ def format_text(name, ticker, data):
         f"המניה רחוקה מהשיא ב־{abs(data['from_high'])} אחוז."
     )
 
-# 🔈 הפקת MP3
 async def create_audio(text, filename="output.mp3"):
     communicate = edge_tts.Communicate(text, voice="he-IL-AvriNeural")
     await communicate.save(filename)
 
-# 🔁 המרת MP3 ל־WAV
 def convert_mp3_to_wav(mp3_file, wav_file):
     subprocess.run(["ffmpeg", "-y", "-i", mp3_file, wav_file])
 
-# ☁️ העלאה לשלוחה 8
 def upload_to_yemot(wav_file):
     url = "https://www.call2all.co.il/ym/api/UploadFile"
     m = MultipartEncoder(
@@ -126,13 +115,11 @@ def upload_to_yemot(wav_file):
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
     print("⬆️ קובץ עלה לשלוחה 8")
 
-# 🗑️ מחיקת קובץ מהשלוחה 9
 def delete_yemot_file():
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
     params = {"token": TOKEN, "path": "ivr2:/9/000.wav"}
     requests.get(url, params=params)
     print("🗑️ הקובץ נמחק מהשלוחה")
 
-# ▶️ הפעלת הלולאה הראשית
 if __name__ == "__main__":
     asyncio.run(main_loop())
