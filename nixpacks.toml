@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["python312", "ffmpeg"]
+nixPkgs = ["python312Full", "ffmpeg"]
 
 [phases.install]
-cmds = ["python3.12 -m pip install --upgrade pip", "python3.12 -m pip install -r requirements.txt"]
+cmds = ["python3.12 -m pip install -r requirements.txt"]
 
 [start]
 cmd = "python3.12 main.py"
