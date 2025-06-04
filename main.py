@@ -128,7 +128,7 @@ async def create_audio(text, filename="output.mp3"):
     await communicate.save(filename)
 
 def convert_mp3_to_wav(mp3_file, wav_file):
-    subprocess.run(["ffmpeg", "-y", "-i", mp3_file, wav_file])
+subprocess.run(["ffmpeg", "-y", "-i", mp3_file, "-ar", "8000", "-ac", "1", "-acodec", "pcm_s16le", wav_file])
 
 def upload_to_yemot(wav_file):
     url = "https://www.call2all.co.il/ym/api/UploadFile"
