@@ -18,8 +18,7 @@ FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
 async def main_loop():
     stock_dict = load_stock_list("hebrew_stocks.csv")
-    print("\U0001F501 בלולאת בדיקה מתחילה 9...")
-
+    print("\U0001F501 בלולאת בדיקה מתחילה...")
     ensure_ffmpeg()
     last_processed_file = None
 
@@ -31,16 +30,23 @@ async def main_loop():
             if recognized:
                 best_match = get_best_match(recognized, stock_dict)
                 if best_match:
-                    ticker = stock_dict[best_match]
+                    ticker, stock_type = stock_dict[best_match]
                     data = get_stock_data(ticker)
                     if data:
-                        text = format_text(best_match, ticker, data)
-                        await create_audio(text, "output.mp3")
-                        convert_mp3_to_wav("output.mp3", "output.wav")
-                        upload_to_yemot("output.wav")
-                        delete_yemot_file(file_name_only)
-                        print("\u2705 הושלמה פעולה מחזורית\n")
-        await asyncio.sleep(1)
+                        text = format_text(best_match, ticker, data, stock_type)
+                    else:
+                        text = error_text()
+                else:
+                    text = error_text()
+            else:
+                text = error_text()
+
+            await create_audio(text, "output.mp3")
+            convert_mp3_to_wav("output.mp3", "output.wav")
+            upload_to_yemot("output.wav")
+            delete_yemot_file(file_name_only)
+            print("\u2705 הושלמה פעולה מחזורית\n")
+        await asyncio.sleep(2)
 
 def ensure_ffmpeg():
     if not shutil.which("ffmpeg"):
@@ -80,9 +86,7 @@ def download_yemot_file():
         name = f.get("name", "")
         if not f.get("exists", False):
             continue
-        if not name.endswith(".wav"):
-            continue
-        if name.startswith("M"):
+        if not name.endswith(".wav") or name.startswith("M"):
             continue
         match = re.match(r"(\d+)\.wav$", name)
         if match:
@@ -129,7 +133,7 @@ def transcribe_audio(filename):
 
 def load_stock_list(csv_path):
     df = pd.read_csv(csv_path)
-    return dict(zip(df['hebrew_name'], df['ticker']))
+    return dict(zip(df['hebrew_name'], zip(df['ticker'], df['type'])))
 
 def get_best_match(query, stock_dict):
     matches = get_close_matches(query, stock_dict.keys(), n=1, cutoff=0.6)
@@ -158,16 +162,32 @@ def get_stock_data(ticker):
     except:
         return None
 
-def format_text(name, ticker, data):
-    return (
-        f"נמצאה מניה בשם {name}."
-        f"המניה נסחרת בשווי של {data['current']} שקלים. "
-        f"שינוי יומי: {data['day']} אחוז. "
-        f"שינוי שבועי: {data['week']} אחוז. "
-        f"שינוי בשלושה חודשים: {data['3mo']} אחוז. "
-        f"שינוי מתחילת השנה: {data['year']} אחוז. "
-        f"המניה רחוקה מהשיא ב־{abs(data['from_high'])} אחוז."
-    )
+def number_to_words(n):
+    return str(int(n)) if n >= 1000 else str(n).replace(".", " נקודה ")
+
+def format_text(name, ticker, data, stock_type):
+    current = number_to_words(data['current'])
+    day = number_to_words(abs(data['day']))
+    mo3 = number_to_words(abs(data['3mo']))
+    from_high = number_to_words(abs(data['from_high']))
+    trend_day = "עלייה" if data['day'] > 0 else "ירידה"
+    trend_3mo = "עלייה" if data['3mo'] > 0 else "ירידה"
+
+    if stock_type == "ישראל":
+        return f"נמצאה מנייה בשם {name}. המנייה נסחרת כעת בשווי של {current} שקלים. מתחילת היום נרשמה {trend_day} של {day} אחוז. בשלושת החודשים האחרונים נרשמה {trend_3mo} של {mo3} אחוז. המחיר הנוכחי רחוק מהשיא ב־{from_high} אחוז."
+    elif stock_type == "ארה" + "ב":
+        return f"נמצאה מנייה בשם {name}. המנייה נסחרת כעת בשווי של {current} דולר. מתחילת היום נרשמה {trend_day} של {day} אחוז. בשלושת החודשים האחרונים נרשמה {trend_3mo} של {mo3} אחוז. המחיר הנוכחי רחוק מהשיא ב־{from_high} אחוז."
+    elif stock_type == "מדד":
+        return f"נמצא מדד בשם {name}. המדד עומד כעת על {current} נקודות. מתחילת היום נרשמה {trend_day} של {day} אחוז. בשלושת החודשים האחרונים נרשמה {trend_3mo} של {mo3} אחוז. המדד עומד כעת במרחק של {from_high} אחוז מהשיא."
+    elif stock_type == "קריפטו":
+        return f"נמצא מטבע בשם {name}. המטבע נסחר כעת בשווי של {current} דולר. מתחילת היום נרשמה {trend_day} של {day} אחוז. בשלושת החודשים האחרונים נרשמה {trend_3mo} של {mo3} אחוז. המחיר הנוכחי רחוק מהשיא ב־{from_high} אחוז."
+    elif stock_type == "סחורה":
+        return f"נמצאה סחורה בשם {name}. נסחרת בשווי של {current} דולר. מתחילת היום {trend_day} של {day} אחוז. בשלושה חודשים האחרונים {trend_3mo} של {mo3} אחוז. המחיר הנוכחי רחוק מהשיא ב־{from_high} אחוז."
+    else:
+        return error_text()
+
+def error_text():
+    return "לא נמצאו נתונים עבור הבקשה. אנא נסו שוב עם שם ברור יותר."
 
 async def create_audio(text, filename="output.mp3"):
     communicate = edge_tts.Communicate(text, voice="he-IL-AvriNeural")
@@ -181,7 +201,7 @@ def upload_to_yemot(wav_file):
     m = MultipartEncoder(
         fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
-    response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
+    requests.post(url, data=m, headers={'Content-Type': m.content_type})
     print("\u2B06️ קובץ עלה לשלוחה 99")
 
 if __name__ == "__main__":
