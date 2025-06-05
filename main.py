@@ -18,33 +18,49 @@ FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
 async def main_loop():
     stock_dict = load_stock_list("hebrew_stocks.csv")
-    print("\U0001F501 בלולאת בדיקה מתחילה 9...")
+    print("\U0001F501 בלולאת בדיקה מתחילה...")
 
     ensure_ffmpeg()
     last_processed_file = None
 
     while True:
         filename, file_name_only = download_yemot_file()
-        if filename and file_name_only != last_processed_file:
-            last_processed_file = file_name_only
+
+        if not file_name_only:
+            await asyncio.sleep(1)
+            continue
+
+        if file_name_only == last_processed_file:
+            print(f"\U0001F50D נמצא הקובץ: {file_name_only}")
+            await asyncio.sleep(1)
+            continue
+
+        last_processed_file = file_name_only
+        print(f"\U0001F4E5 קובץ חדש לזיהוי: {file_name_only}")
+
+        if filename:
             recognized = transcribe_audio(filename)
             if recognized:
                 best_match = get_best_match(recognized, stock_dict)
                 if best_match:
-                    ticker, kind = stock_dict[best_match]
+                    ticker, stock_type = stock_dict[best_match]
                     data = get_stock_data(ticker)
                     if data:
-                        text = format_text(best_match, ticker, data, kind)
+                        text = format_text(best_match, ticker, data, stock_type)
                     else:
-                        text = f"\u274C לא נמצאו נתונים עבור {recognized}"
+                        text = f"לא נמצאו נתונים עבור {best_match}"
                 else:
-                    text = f"\u274C לא נמצאה התאמה עבור {recognized}"
-                await create_audio(text, "output.mp3")
-                convert_mp3_to_wav("output.mp3", "output.wav")
-                upload_to_yemot("output.wav")
-                delete_yemot_file(file_name_only)
-                print("\u2705 הושלמה פעולה מחזורית\n")
-        await asyncio.sleep(2)
+                    text = "לא זוהה נייר ערך תואם"
+            else:
+                text = "לא זוהה דיבור ברור"
+
+            await create_audio(text, "output.mp3")
+            convert_mp3_to_wav("output.mp3", "output.wav")
+            upload_to_yemot("output.wav")
+            delete_yemot_file(file_name_only)
+            print("\u2705 הושלמה פעולה מחזורית\n")
+
+        await asyncio.sleep(1)
 
 def ensure_ffmpeg():
     if not shutil.which("ffmpeg"):
@@ -107,7 +123,6 @@ def download_yemot_file():
     if r.status_code == 200 and r.content:
         with open("input.wav", "wb") as f:
             f.write(r.content)
-        print("✅ הורדת הקובץ בוצעה בהצלחה")
         return "input.wav", max_name
     else:
         print("❌ שגיאה בהורדת הקובץ")
@@ -133,7 +148,7 @@ def transcribe_audio(filename):
 
 def load_stock_list(csv_path):
     df = pd.read_csv(csv_path)
-    return {row['hebrew_name']: (row['ticker'], row['type']) for _, row in df.iterrows()}
+    return dict(zip(df['hebrew_name'], zip(df['ticker'], df['type'])))
 
 def get_best_match(query, stock_dict):
     matches = get_close_matches(query, stock_dict.keys(), n=1, cutoff=0.6)
@@ -162,24 +177,31 @@ def get_stock_data(ticker):
     except:
         return None
 
-def format_text(name, ticker, data, kind):
-    currency = "שקלים" if kind == "מניה ישראלית" else "דולר"
-    value_unit = "נקודות" if kind == "מדד" else currency
-    kind_text = {
-        "מניה ישראלית": f"נמצאה מנייה בשם {name}. המנייה נסחרת כעת בשווי של {data['current']} {currency}.",
-        "מניה אמריקאית": f"נמצאה מנייה בשם {name}. המנייה נסחרת כעת בשווי של {data['current']} {currency}.",
-        "מדד": f"נמצא מדד בשם {name}. המדד עומד כעת על {data['current']} {value_unit}.",
-        "קריפטו": f"נמצא מטבע בשם {name}. המטבע נסחר כעת בשווי של {data['current']} {currency}.",
-        "סחורה": f"נמצאה סחורה בשם {name}. הסחורה נסחרת בשווי של {data['current']} {currency}."
-    }.get(kind, f"נמצא פריט בשם {name}, שווי נוכחי: {data['current']} {currency}.")
-
-    direction = lambda v: "עלייה" if v >= 0 else "ירידה"
-
-    return (
-        f"{kind_text} מתחילת היום נרשמה {direction(data['day'])} של {abs(data['day'])} אחוז."
-        f" בשלושת החודשים האחרונים נרשמה {direction(data['3mo'])} של {abs(data['3mo'])} אחוז."
-        f" המחיר הנוכחי רחוק מהשיא ב־{abs(data['from_high'])} אחוז."
-    )
+def format_text(name, ticker, data, stock_type):
+    currency = "שקלים" if ticker.endswith(".TA") else "דולר"
+    if stock_type == "מניה":
+        return (
+            f"נמצאה מניה בשם {name}. המניה נסחרת בשווי של {data['current']} {currency}. "
+            f"מתחילת היום נרשמה {'עלייה' if data['day'] > 0 else 'ירידה'} של {abs(data['day'])} אחוז. "
+            f"בשלושת החודשים האחרונים נרשמה {'עלייה' if data['3mo'] > 0 else 'ירידה'} של {abs(data['3mo'])} אחוז. "
+            f"המחיר הנוכחי רחוק מהשיא ב־{abs(data['from_high'])} אחוז."
+        )
+    elif stock_type == "מדד":
+        return (
+            f"נמצא מדד בשם {name}. המדד עומד כעת על {data['current']} נקודות. "
+            f"מתחילת היום נרשמה {'עלייה' if data['day'] > 0 else 'ירידה'} של {abs(data['day'])} אחוז. "
+            f"בשלושת החודשים האחרונים {'עלייה' if data['3mo'] > 0 else 'ירידה'} של {abs(data['3mo'])} אחוז. "
+            f"המדד עומד כעת במרחק של {abs(data['from_high'])} אחוז מהשיא."
+        )
+    elif stock_type == "מטבע":
+        return (
+            f"נמצא מטבע בשם {name}. המטבע נסחר כעת בשווי של {data['current']} דולר. "
+            f"מתחילת היום {'עלייה' if data['day'] > 0 else 'ירידה'} של {abs(data['day'])} אחוז. "
+            f"בשלושת החודשים האחרונים {'עלייה' if data['3mo'] > 0 else 'ירידה'} של {abs(data['3mo'])} אחוז. "
+            f"המחיר הנוכחי רחוק מהשיא ב־{abs(data['from_high'])} אחוז."
+        )
+    else:
+        return f"נמצא נייר ערך בשם {name}. המחיר הנוכחי הוא {data['current']} {currency}."
 
 async def create_audio(text, filename="output.mp3"):
     communicate = edge_tts.Communicate(text, voice="he-IL-AvriNeural")
