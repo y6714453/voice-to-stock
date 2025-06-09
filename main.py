@@ -21,36 +21,44 @@ async def main_loop():
     print("\U0001F501 בלולאת בדיקה מתחילה...")
 
     ensure_ffmpeg()
-    last_files = {}
+    last_processed_file = None
 
     while True:
-        subfolders = get_phone_subfolders()
-        for phone, last_file in subfolders.items():
-            if phone not in last_files or last_files[phone] != last_file:
-                print(f"\U0001F4E5 מספר: {phone}, קובץ חדש: {last_file}")
-                filename = download_yemot_file(phone, last_file)
-                if filename:
-                    recognized = transcribe_audio(filename)
-                    if recognized:
-                        best_match = get_best_match(recognized, stock_dict)
-                        if best_match:
-                            ticker, stock_type = stock_dict[best_match]
-                            data = get_stock_data(ticker)
-                            if data:
-                                text = format_text(best_match, ticker, data, stock_type)
-                            else:
-                                text = f"לא נמצאו נתונים עבור {best_match}"
-                        else:
-                            text = "לא זוהה נייר ערך תואם"
+        filename, file_name_only, caller_id = download_yemot_file()
+
+        if not file_name_only:
+            await asyncio.sleep(1)
+            continue
+
+        if file_name_only == last_processed_file:
+            await asyncio.sleep(1)
+            continue
+
+        last_processed_file = file_name_only
+        print(f"\U0001F4E5 קובץ חדש לזיהוי: {file_name_only}, נשלח על ידי: {caller_id}")
+
+        if filename:
+            recognized = transcribe_audio(filename)
+            if recognized:
+                best_match = get_best_match(recognized, stock_dict)
+                if best_match:
+                    ticker, stock_type = stock_dict[best_match]
+                    data = get_stock_data(ticker)
+                    if data:
+                        text = format_text(best_match, ticker, data, stock_type)
                     else:
-                        text = "לא זוהה דיבור ברור"
+                        text = f"לא נמצאו נתונים עבור {best_match}"
+                else:
+                    text = "לא זוהה נייר ערך תואם"
+            else:
+                text = "לא זוהה דיבור ברור"
 
-                    await create_audio(text, "output.mp3")
-                    convert_mp3_to_wav("output.mp3", "output.wav")
-                    upload_to_yemot("output.wav")
-                    print("\u2705 הושלמה פעולה מחזורית\n")
+            await create_audio(text, "output.mp3")
+            convert_mp3_to_wav("output.mp3", "output.wav")
+            upload_to_yemot("output.wav")
+            delete_yemot_file(file_name_only)
+            print("\u2705 הושלמה פעולה מחזורית\n")
 
-                last_files[phone] = last_file
         await asyncio.sleep(1)
 
 def ensure_ffmpeg():
@@ -71,43 +79,59 @@ def ensure_ffmpeg():
         if bin_path:
             os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
 
-def get_phone_subfolders():
+def download_yemot_file():
     url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
-    params = {"token": TOKEN, "path": "9/Phone"}
+    params = {"token": TOKEN, "path": "9"}
     response = requests.get(url, params=params)
-    subfolders = {}
-    if response.status_code == 200:
-        data = response.json()
-        for item in data.get("folders", []):
-            name = item.get("name")
-            if not name:
-                continue
-            inner_url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
-            inner_params = {"token": TOKEN, "path": f"9/Phone/{name}"}
-            inner_resp = requests.get(inner_url, params=inner_params)
-            if inner_resp.status_code != 200:
-                continue
-            inner_data = inner_resp.json()
-            wav_files = [f["name"] for f in inner_data.get("files", []) if f.get("exists") and f["name"].endswith(".wav") and not f["name"].startswith("M")]
-            if not wav_files:
-                continue
-            numbered = [(int(re.match(r"(\\d+)\\.wav", f).group(1)), f) for f in wav_files if re.match(r"(\\d+)\\.wav", f)]
-            if numbered:
-                max_number, max_file = max(numbered, key=lambda x: x[0])
-                subfolders[name] = max_file
-    return subfolders
 
-def download_yemot_file(phone, filename):
+    if response.status_code != 200:
+        print("❌ שגיאה בשליפת הקבצים")
+        return None, None, None
+
+    data = response.json()
+    files = data.get("files", [])
+    if not files:
+        print("📭 אין קבצים בשלוחה")
+        return None, None, None
+
+    numbered_wav_files = []
+    for f in files:
+        name = f.get("name", "")
+        if not f.get("exists", False):
+            continue
+        if not name.endswith(".wav"):
+            continue
+        if name.startswith("M"):
+            continue
+        match = re.match(r"(\d+)\.wav$", name)
+        if match:
+            number = int(match.group(1))
+            numbered_wav_files.append((number, name, f.get("caller_id", "")))
+
+    if not numbered_wav_files:
+        print("📭 אין קובצי WAV תקינים")
+        return None, None, None
+
+    max_number, max_name, caller_id = max(numbered_wav_files, key=lambda x: x[0])
+    print(f"🔍 נמצא הקובץ: {max_name}, מספר המתקשר: {caller_id}")
+
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
-    download_params = {"token": TOKEN, "path": f"ivr2:/9/Phone/{phone}/{filename}"}
+    download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
     r = requests.get(download_url, params=download_params)
+
     if r.status_code == 200 and r.content:
         with open("input.wav", "wb") as f:
             f.write(r.content)
-        return "input.wav"
+        return "input.wav", max_name, caller_id
     else:
         print("❌ שגיאה בהורדת הקובץ")
-        return None
+        return None, None, None
+
+def delete_yemot_file(file_name):
+    url = "https://www.call2all.co.il/ym/api/DeleteFile"
+    params = {"token": TOKEN, "path": f"ivr2:/9/{file_name}"}
+    requests.get(url, params=params)
+    print(f"\U0001F5D1️ הקובץ {file_name} נמחק מהשלוחה")
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
