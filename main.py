@@ -14,85 +14,60 @@ import shutil
 USERNAME = "0733181201"
 PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
+FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
 async def main_loop():
     stock_dict = load_stock_list("hebrew_stocks.csv")
     print("\U0001F501 בלולאת בדיקה מתחילה...")
+
     ensure_ffmpeg()
     last_processed_file = None
 
     while True:
-        file_name, phone = get_last_file_with_phone()
+        filename, file_name_only = download_yemot_file()
 
-        if not file_name or not phone:
+        if not file_name_only:
             await asyncio.sleep(1)
             continue
 
-        if file_name == last_processed_file:
+        if file_name_only == last_processed_file:
+            print(f"\U0001F50D נמצא הקובץ: {file_name_only}")
             await asyncio.sleep(1)
             continue
 
-        last_processed_file = file_name
-        short_phone = phone[-5:]
-        print(f"\U0001F4E5 קובץ חדש: {file_name}. מופק על ידי: {short_phone}")
+        last_processed_file = file_name_only
+        print(f"\U0001F4E5 קובץ חדש לזיהוי: {file_name_only}")
 
-        download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
-        r = requests.get(download_url, params={"token": TOKEN, "path": f"ivr2:/9/{file_name}.wav"})
-        if r.status_code == 200 and r.content:
-            with open("input.wav", "wb") as f:
-                f.write(r.content)
-        else:
-            print("\u274C שגיאה בהורדת קובץ")
-            continue
-
-        recognized = transcribe_audio("input.wav")
-        if recognized:
-            best_match = get_best_match(recognized, stock_dict)
-            if best_match:
-                ticker, stock_type = stock_dict[best_match]
-                data = get_stock_data(ticker)
-                if data:
-                    text = format_text(best_match, ticker, data, stock_type)
+        if filename:
+            recognized = transcribe_audio(filename)
+            if recognized:
+                best_match = get_best_match(recognized, stock_dict)
+                if best_match:
+                    ticker, stock_type = stock_dict[best_match]
+                    data = get_stock_data(ticker)
+                    if data:
+                        text = format_text(best_match, ticker, data, stock_type)
+                    else:
+                        text = f"לא נמצאו נתונים עבור {best_match}"
                 else:
-                    text = f"לא נמצאו נתונים עבור {best_match}"
+                    text = "לא זוהה נייר ערך תואם"
             else:
-                text = "לא זוהה נייר ערך תואם"
-        else:
-            text = "לא זוהה דיבור ברור"
+                text = "לא זוהה דיבור ברור"
 
-        await create_audio(text, f"{short_phone}.mp3")
-        convert_mp3_to_wav(f"{short_phone}.mp3", f"{short_phone}.wav")
-        upload_to_yemot(f"{short_phone}.wav", short_phone)
-        delete_yemot_file(f"{file_name}.wav")
-        print("\u2705 הושלמה פעולה מחזורית\n")
+            await create_audio(text, "output.mp3")
+            convert_mp3_to_wav("output.mp3", "output.wav")
+            upload_to_yemot("output.wav")
+            delete_yemot_file(file_name_only)
+            print("\u2705 הושלמה פעולה מחזורית\n")
 
         await asyncio.sleep(1)
-
-def get_last_file_with_phone():
-    url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
-    params = {"token": TOKEN, "path": "9"}
-    response = requests.get(url, params=params)
-    if response.status_code != 200:
-        return None, None
-
-    files = response.json().get("files", [])
-    valid = [f for f in files if f["name"].endswith(".wav") and f.get("exists")]
-    if not valid:
-        return None, None
-
-    valid.sort(key=lambda f: f.get("modifyDate", ""), reverse=True)
-    last = valid[0]
-    file_name = last["name"].replace(".wav", "")
-    phone = last.get("caller", "")
-
-    return file_name, phone
 
 def ensure_ffmpeg():
     if not shutil.which("ffmpeg"):
         print("\U0001F527 מוריד ffmpeg...")
         os.makedirs("ffmpeg_bin", exist_ok=True)
         zip_path = "ffmpeg.zip"
-        r = requests.get("https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip")
+        r = requests.get(FFMPEG_URL)
         with open(zip_path, 'wb') as f:
             f.write(r.content)
         import zipfile
@@ -104,6 +79,60 @@ def ensure_ffmpeg():
                          for file in files if file == "ffmpeg.exe" or file == "ffmpeg"), None)
         if bin_path:
             os.environ["PATH"] += os.pathsep + os.path.dirname(bin_path)
+
+def download_yemot_file():
+    url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
+    params = {"token": TOKEN, "path": "9"}
+    response = requests.get(url, params=params)
+
+    if response.status_code != 200:
+        print("❌ שגיאה בשליפת הקבצים")
+        return None, None
+
+    data = response.json()
+    files = data.get("files", [])
+    if not files:
+        print("📭 אין קבצים בשלוחה")
+        return None, None
+
+    numbered_wav_files = []
+    for f in files:
+        name = f.get("name", "")
+        if not f.get("exists", False):
+            continue
+        if not name.endswith(".wav"):
+            continue
+        if name.startswith("M"):
+            continue
+        match = re.match(r"(\d+)\.wav$", name)
+        if match:
+            number = int(match.group(1))
+            numbered_wav_files.append((number, name))
+
+    if not numbered_wav_files:
+        print("📭 אין קובצי WAV תקינים")
+        return None, None
+
+    max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
+    print(f"\U0001F50D נמצא הקובץ: {max_name}")
+
+    download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
+    download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
+    r = requests.get(download_url, params=download_params)
+
+    if r.status_code == 200 and r.content:
+        with open("input.wav", "wb") as f:
+            f.write(r.content)
+        return "input.wav", max_name
+    else:
+        print("❌ שגיאה בהורדת הקובץ")
+        return None, None
+
+def delete_yemot_file(file_name):
+    url = "https://www.call2all.co.il/ym/api/DeleteFile"
+    params = {"token": TOKEN, "path": f"ivr2:/9/{file_name}"}
+    requests.get(url, params=params)
+    print(f"\U0001F5D1️ הקובץ {file_name} נמחק מהשלוחה")
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
@@ -181,19 +210,13 @@ async def create_audio(text, filename="output.mp3"):
 def convert_mp3_to_wav(mp3_file, wav_file):
     subprocess.run(["ffmpeg", "-y", "-i", mp3_file, "-ar", "8000", "-ac", "1", "-acodec", "pcm_s16le", wav_file])
 
-def upload_to_yemot(wav_file, short_name):
+def upload_to_yemot(wav_file):
     url = "https://www.call2all.co.il/ym/api/UploadFile"
     m = MultipartEncoder(
-        fields={"token": TOKEN, "path": f"ivr2:/99/{short_name}.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
+        fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
     print("\u2B06️ קובץ עלה לשלוחה 99")
-
-def delete_yemot_file(file_name):
-    url = "https://www.call2all.co.il/ym/api/DeleteFile"
-    params = {"token": TOKEN, "path": f"ivr2:/9/{file_name}"}
-    requests.get(url, params=params)
-    print(f"\U0001F5D1️ הקובץ {file_name} נמחק מהשלוחה")
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
