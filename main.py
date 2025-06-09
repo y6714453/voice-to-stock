@@ -10,6 +10,7 @@ from difflib import get_close_matches
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 import re
 import shutil
+import random
 
 USERNAME = "0733181201"
 PASSWORD = "6714453"
@@ -53,7 +54,7 @@ async def main_loop():
             else:
                 text = "לא זוהה דיבור ברור"
 
-            output_base = phone[-5:] if phone and len(phone) >= 5 else "00000"
+            output_base = phone[-5:] if phone and len(phone) >= 5 else str(random.randint(10000, 99999))
             mp3_file = f"{output_base}.mp3"
             wav_file = f"{output_base}.wav"
 
@@ -102,6 +103,7 @@ def download_yemot_file():
     file_phone_map = {}
 
     for f in files:
+        print(f"🔎 בדיקת קובץ: {f.get('name')} | caller: {f.get('caller')}")
         name = f.get("name", "")
         if not f.get("exists", False):
             continue
@@ -121,7 +123,10 @@ def download_yemot_file():
 
     max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
     phone = file_phone_map.get(max_name, "")
-    print(f"\U0001F50D נמצא הקובץ: {max_name}, מספר המתקשר: {phone}")
+    if phone:
+        print(f"📞 מספר המתקשר: {phone} (5 ספרות אחרונות: {phone[-5:]})")
+    else:
+        print("⚠️ לא התקבל מספר טלפון מהקובץ")
 
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
     download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
