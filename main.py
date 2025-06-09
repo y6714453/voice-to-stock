@@ -40,7 +40,10 @@ async def main_loop():
 
         if filename:
             recognized = transcribe_audio(filename)
-            if recognized:
+
+            print(f"🔎 סוג התוצאה שזוהתה: {type(recognized)}")
+
+            if recognized and isinstance(recognized, str):
                 best_match = get_best_match(recognized, stock_dict)
                 if best_match:
                     ticker = stock_dict[best_match]
@@ -140,6 +143,9 @@ def transcribe_audio(filename):
         audio = r.record(source)
     try:
         text = r.recognize_google(audio, language="he-IL")
+        if not isinstance(text, str):
+            return ""
+        text = text.strip()
         print(f"\U0001F5E3️ זיהוי: {text}")
         return text
     except:
