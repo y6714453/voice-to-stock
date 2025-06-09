@@ -24,18 +24,19 @@ async def main_loop():
     last_processed_file = None
 
     while True:
-        filename, file_name_only, caller_id = download_yemot_file()
+        filename, file_name_only = download_yemot_file()
 
         if not file_name_only:
             await asyncio.sleep(1)
             continue
 
         if file_name_only == last_processed_file:
+            print(f"\U0001F50D נמצא הקובץ: {file_name_only}")
             await asyncio.sleep(1)
             continue
 
         last_processed_file = file_name_only
-        print(f"\U0001F4E5 קובץ חדש לזיהוי: {file_name_only}, נשלח על ידי: {caller_id}")
+        print(f"\U0001F4E5 קובץ חדש לזיהוי: {file_name_only}")
 
         if filename:
             recognized = transcribe_audio(filename)
@@ -86,13 +87,13 @@ def download_yemot_file():
 
     if response.status_code != 200:
         print("❌ שגיאה בשליפת הקבצים")
-        return None, None, None
+        return None, None
 
     data = response.json()
     files = data.get("files", [])
     if not files:
         print("📭 אין קבצים בשלוחה")
-        return None, None, None
+        return None, None
 
     numbered_wav_files = []
     for f in files:
@@ -106,14 +107,14 @@ def download_yemot_file():
         match = re.match(r"(\d+)\.wav$", name)
         if match:
             number = int(match.group(1))
-            numbered_wav_files.append((number, name, f.get("caller_id", "")))
+            numbered_wav_files.append((number, name))
 
     if not numbered_wav_files:
         print("📭 אין קובצי WAV תקינים")
-        return None, None, None
+        return None, None
 
-    max_number, max_name, caller_id = max(numbered_wav_files, key=lambda x: x[0])
-    print(f"🔍 נמצא הקובץ: {max_name}, מספר המתקשר: {caller_id}")
+    max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
+    print(f"\U0001F50D נמצא הקובץ: {max_name}")
 
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
     download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
@@ -122,10 +123,10 @@ def download_yemot_file():
     if r.status_code == 200 and r.content:
         with open("input.wav", "wb") as f:
             f.write(r.content)
-        return "input.wav", max_name, caller_id
+        return "input.wav", max_name
     else:
         print("❌ שגיאה בהורדת הקובץ")
-        return None, None, None
+        return None, None
 
 def delete_yemot_file(file_name):
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
