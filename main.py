@@ -70,7 +70,7 @@ async def main_loop():
 
 def get_last_file_with_phone():
     url = "https://www.call2all.co.il/ym/api/GetIVR2Dir"
-    params = {"token": TOKEN, "path": "9"}
+    params = {"token": TOKEN, "path": "9", "full_info": "true"}
     response = requests.get(url, params=params)
     if response.status_code != 200:
         return None, None
