@@ -24,14 +24,13 @@ async def main_loop():
     last_processed_file = None
 
     while True:
-        filename, file_name_only = download_yemot_file()
+        filename, file_name_only, phone = download_yemot_file()
 
         if not file_name_only:
             await asyncio.sleep(1)
             continue
 
         if file_name_only == last_processed_file:
-            print(f"\U0001F50D נמצא הקובץ: {file_name_only}")
             await asyncio.sleep(1)
             continue
 
@@ -54,11 +53,15 @@ async def main_loop():
             else:
                 text = "לא זוהה דיבור ברור"
 
-            await create_audio(text, "output.mp3")
-            convert_mp3_to_wav("output.mp3", "output.wav")
-            upload_to_yemot("output.wav")
+            output_base = phone[-5:] if phone and len(phone) >= 5 else "00000"
+            mp3_file = f"{output_base}.mp3"
+            wav_file = f"{output_base}.wav"
+
+            await create_audio(text, mp3_file)
+            convert_mp3_to_wav(mp3_file, wav_file)
+            upload_to_yemot(wav_file)
             delete_yemot_file(file_name_only)
-            print("\u2705 הושלמה פעולה מחזורית\n")
+            print(f"\u2705 הושלמה פעולה מחזורית עבור {output_base}\n")
 
         await asyncio.sleep(1)
 
@@ -87,15 +90,17 @@ def download_yemot_file():
 
     if response.status_code != 200:
         print("❌ שגיאה בשליפת הקבצים")
-        return None, None
+        return None, None, None
 
     data = response.json()
     files = data.get("files", [])
     if not files:
         print("📭 אין קבצים בשלוחה")
-        return None, None
+        return None, None, None
 
     numbered_wav_files = []
+    file_phone_map = {}
+
     for f in files:
         name = f.get("name", "")
         if not f.get("exists", False):
@@ -108,13 +113,15 @@ def download_yemot_file():
         if match:
             number = int(match.group(1))
             numbered_wav_files.append((number, name))
+            file_phone_map[name] = f.get("caller", "")
 
     if not numbered_wav_files:
         print("📭 אין קובצי WAV תקינים")
-        return None, None
+        return None, None, None
 
     max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
-    print(f"\U0001F50D נמצא הקובץ: {max_name}")
+    phone = file_phone_map.get(max_name, "")
+    print(f"\U0001F50D נמצא הקובץ: {max_name}, מספר המתקשר: {phone}")
 
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
     download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
@@ -123,10 +130,10 @@ def download_yemot_file():
     if r.status_code == 200 and r.content:
         with open("input.wav", "wb") as f:
             f.write(r.content)
-        return "input.wav", max_name
+        return "input.wav", max_name, phone
     else:
         print("❌ שגיאה בהורדת הקובץ")
-        return None, None
+        return None, None, None
 
 def delete_yemot_file(file_name):
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
@@ -211,12 +218,14 @@ def convert_mp3_to_wav(mp3_file, wav_file):
     subprocess.run(["ffmpeg", "-y", "-i", mp3_file, "-ar", "8000", "-ac", "1", "-acodec", "pcm_s16le", wav_file])
 
 def upload_to_yemot(wav_file):
+    number_part = os.path.splitext(os.path.basename(wav_file))[0]
+    path = f"ivr2:/99/{number_part}.wav"
     url = "https://www.call2all.co.il/ym/api/UploadFile"
     m = MultipartEncoder(
-        fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
+        fields={"token": TOKEN, "path": path, "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
-    print("\u2B06️ קובץ עלה לשלוחה 99")
+    print(f"\u2B06️ קובץ עלה לשלוחה 99 כ־{number_part}.wav")
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
