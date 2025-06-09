@@ -18,7 +18,7 @@ FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
 async def main_loop():
     stock_dict = load_stock_list("hebrew_stocks.csv")
-    print("🔁 בלולאת בדיקה מתחילה...")
+    print("\U0001F501 בלולאת בדיקה מתחילה...")
 
     ensure_ffmpeg()
     last_processed_file = None
@@ -31,12 +31,11 @@ async def main_loop():
             continue
 
         if file_name_only == last_processed_file:
-            print(f"🔍 נמצא הקובץ: {file_name_only}")
             await asyncio.sleep(1)
             continue
 
         last_processed_file = file_name_only
-        print(f"📥 קובץ חדש לזיהוי: {file_name_only}")
+        print(f"\U0001F4E5 קובץ חדש לזיהוי: {file_name_only}")
 
         if filename:
             recognized = transcribe_audio(filename)
@@ -58,13 +57,13 @@ async def main_loop():
             convert_mp3_to_wav("output.mp3", "output.wav")
             upload_to_yemot("output.wav")
             delete_yemot_file(file_name_only)
-            print("✅ הושלמה פעולה מחזורית\n")
+            print("\u2705 הושלמה פעולה מחזורית\n")
 
         await asyncio.sleep(1)
 
 def ensure_ffmpeg():
     if not shutil.which("ffmpeg"):
-        print("🔧 מוריד ffmpeg...")
+        print("\U0001F527 מוריד ffmpeg...")
         os.makedirs("ffmpeg_bin", exist_ok=True)
         zip_path = "ffmpeg.zip"
         r = requests.get(FFMPEG_URL)
@@ -114,7 +113,7 @@ def download_yemot_file():
         return None, None
 
     max_number, max_name = max(numbered_wav_files, key=lambda x: x[0])
-    print(f"🔍 נמצא הקובץ: {max_name}")
+    print(f"\U0001F50D נמצא הקובץ: {max_name}")
 
     download_url = "https://www.call2all.co.il/ym/api/DownloadFile"
     download_params = {"token": TOKEN, "path": f"ivr2:/9/{max_name}"}
@@ -132,7 +131,7 @@ def delete_yemot_file(file_name):
     url = "https://www.call2all.co.il/ym/api/DeleteFile"
     params = {"token": TOKEN, "path": f"ivr2:/9/{file_name}"}
     requests.get(url, params=params)
-    print(f"🗑️ הקובץ {file_name} נמחק מהשלוחה")
+    print(f"\U0001F5D1️ הקובץ {file_name} נמחק מהשלוחה")
 
 def transcribe_audio(filename):
     r = sr.Recognizer()
@@ -140,10 +139,10 @@ def transcribe_audio(filename):
         audio = r.record(source)
     try:
         text = r.recognize_google(audio, language="he-IL")
-        print(f"🗣️ זיהוי: {text}")
+        print(f"\U0001F5E3️ זיהוי: {text}")
         return text
     except:
-        print("❌ לא הצליח לזהות דיבור")
+        print("\u274C לא הצליח לזהות דיבור")
         return ""
 
 def load_stock_list(csv_path):
@@ -179,7 +178,8 @@ def get_stock_data(ticker):
 
 def format_text(name, ticker, data):
     return (
-        f"נמצאה מניה בשם {name}. המניה נסחרת כעת בשווי של {data['current']} דולר. "
+        f"נמצאה מניה בשם {name}. "
+        f"המניה נסחרת כעת בשווי של {data['current']} דולר. "
         f"מתחילת היום נרשמה {'עלייה' if data['day'] > 0 else 'ירידה'} של {abs(data['day'])} אחוז. "
         f"מתחילת השבוע נרשמה {'עלייה' if data['week'] > 0 else 'ירידה'} של {abs(data['week'])} אחוז. "
         f"בשלושת החודשים האחרונים נרשמה {'עלייה' if data['3mo'] > 0 else 'ירידה'} של {abs(data['3mo'])} אחוז. "
@@ -200,7 +200,7 @@ def upload_to_yemot(wav_file):
         fields={"token": TOKEN, "path": "ivr2:/99/001.wav", "upload": (wav_file, open(wav_file, 'rb'), 'audio/wav')}
     )
     response = requests.post(url, data=m, headers={'Content-Type': m.content_type})
-    print("⬆️ קובץ עלה לשלוחה 99")
+    print("\u2B06️ קובץ עלה לשלוחה 99")
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
